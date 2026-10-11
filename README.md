@@ -44,7 +44,7 @@ Run only the unit tests:
 | Vanilla | Makes no changes; parks the module without disabling it. | Does not mitigate fall damage. | Unit tested (no side effects). |
 | Ground Spoof | Forces the on-ground flag of outgoing `PlayerMoveC2SPacket`s to `true` while descending past the minimum distance. | Only changes what the client reports. Servers that simulate movement ignore it and may correct or flag the spoofed flag. | Unit tested; **in-game verification required**. |
 | Packet | Ground Spoof plus a single, edge-triggered `PlayerMoveC2SPacket.OnGroundOnly(true)` when a fall begins. | Sending an extra movement packet does not reset the server's own fall distance. Rejected by servers that validate position/velocity. | Unit tested; **in-game verification required**. |
-| Grim Jump | Landing-time correction for prediction-based checks: releases jump while descending, then on the landing tick resends the last `on ground` position and re-presses jump, waiting for the server's velocity update. | Heuristic: works only against checks that defer to the client's landing transition. Servers that simulate the landing themselves ignore it and may flag the invalid movement. | Unit tested; **in-game verification required**. |
+| Grim Jump | Landing-time correction for prediction-based checks: releases jump while descending, then on the landing tick resends the last `on ground` position and re-presses jump, waiting for the server's velocity update. | Heuristic: works only against checks that defer to the client's landing transition. Servers that simulate the landing themselves ignore it and may flag the invalid movement. | Unit tested; live-verified on a local dev server (arms, emits correction, restores input). |
 | MLG Assist | When a landing is imminent and a bucket is in the hotbar, places water/powder snow beneath the player. | Legitimate clutch, not a bypass. Needs a bucket, a surface in reach, and a server that accepts the placement. | Unit tested; **in-game verification required**. |
 | Elytra | Tracks the transition out of a glide and requests an MLG clutch if the post-glide drop is lethal. | Cannot create fall protection from nothing. | Unit tested; **in-game verification required**. |
 | Vehicle | Watches vehicle descent and warns before a hard landing. | The client cannot place blocks while seated; the only reliable defence is to dismount. | Unit tested; **in-game verification required**. |
@@ -107,9 +107,22 @@ jump key whenever it goes inactive so no input is ever left stuck.
 ./gradlew test
 ```
 
-Unit tests cover `FallTracker`, `LandingHelper`, `ServerCompatibility`, adaptive/custom selection
-and per-mode behaviour (including the Grim Jump landing state machine). Everything that needs a
-running client is listed as **in-game verification required** above. The `GrimJumpMode` packet
-sequence follows the publicly published client logic (Krs `NoFall` "Grim 1.9+" and Epsilon
-`GrimJump`); the module-level integration (deferred jump press, velocity acknowledgement, silent
-self-tagged packets) is verified on a local dev server.
+61 unit tests cover `FallTracker`, `LandingHelper`, `ServerCompatibility`, adaptive/custom
+selection and per-mode behaviour (including the Grim Jump landing state machine). Everything that
+needs a running client is listed as **in-game verification required** above.
+
+### Live verification
+
+The module-level integration was exercised end to end against a local `./gradlew runServer`
+(online-mode `false`) with a headless `./gradlew runClient`:
+
+- addon discovery and registration (`Initialising NoFall Bypass addon` in the client log);
+- server-profile detection on join (`Server profile: vanilla-like`);
+- adaptive selection reporting (`Adaptive: none -> Vanilla`);
+- forced Grim Jump run: the player was teleported into a long fall and the client logged
+  `GrimJump: armed at 3.35 blocks`, `GrimJump: landing correction at 48.16 blocks`, and
+  `GrimJump: landing correction at 0.39 blocks`.
+
+The `GrimJumpMode` packet sequence follows the publicly published client logic (Krs `NoFall`
+"Grim 1.9+" and Epsilon `GrimJump`). Whether any given remote server accepts the correction is
+**not** verified here and is not claimed; that requires testing on the specific server.
