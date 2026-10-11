@@ -142,7 +142,7 @@ class ModeBehaviourTest {
     @Test
     void vehicleIsSilentWhenDisabled() {
         VehicleMode mode = new VehicleMode();
-        NoFallSettings off = new NoFallSettings(3, 5, true, true, false, false, true);
+        NoFallSettings off = new NoFallSettings(3, 5, true, true, false, false, true, 3, false, false, true);
         TestContext ctx = TestContext.of().height(2.0);
         mode.onTick(ctx, TestContext.trackerVehicle(), off);
         assertTrue(ctx.notifications.isEmpty());

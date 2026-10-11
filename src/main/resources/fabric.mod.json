@@ -3,7 +3,7 @@
   "id": "nofallbypass",
   "version": "${version}",
   "name": "NoFall Bypass",
-  "description": "A Meteor Client addon providing a multi-mode NoFall module (ground spoof, packet, MLG assist, elytra, vehicle, safe landing and adaptive) for Minecraft 1.21.11.",
+  "description": "A Meteor Client addon providing a multi-mode NoFall module (ground spoof, packet, GrimJump, MLG assist, elytra, vehicle, safe landing and adaptive) for Minecraft 1.21.11.",
   "authors": [
     "logvex"
   ],

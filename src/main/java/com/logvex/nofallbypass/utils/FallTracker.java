@@ -38,6 +38,7 @@ public final class FallTracker {
     private boolean inFluid;
     private boolean flying;
     private int worldId;
+    private double verticalVelocity;
 
     private boolean justLanded;
     private boolean justStartedFalling;
@@ -47,6 +48,12 @@ public final class FallTracker {
     private boolean enteredVehicle;
     private boolean leftVehicle;
     private boolean teleported;
+
+    // Fast-fall / drop state. A drop is a deliberate downward acceleration applied while falling;
+    // it is not a movement packet and does not hide the player's position from the server.
+    private boolean dropping;
+    private boolean fastFallApplied;
+    private double heightToGround = Double.MAX_VALUE;
 
     public void reset() {
         initialized = false;
@@ -61,6 +68,10 @@ public final class FallTracker {
         inFluid = false;
         flying = false;
         worldId = 0;
+        verticalVelocity = 0;
+        dropping = false;
+        fastFallApplied = false;
+        heightToGround = Double.MAX_VALUE;
         clearTransitions();
     }
 
@@ -103,6 +114,9 @@ public final class FallTracker {
             fallDistance = 0;
             ticksFalling = 0;
             fallStartY = s.y();
+            dropping = false;
+            fastFallApplied = false;
+            heightToGround = Double.MAX_VALUE;
             adopt(s);
             return;
         }
@@ -117,6 +131,8 @@ public final class FallTracker {
             fallDistance = 0;
             ticksFalling = 0;
             fallStartY = s.y();
+            dropping = false;
+            fastFallApplied = false;
         } else if (fallCounts) {
             fallStartY = Math.max(fallStartY, s.y());
             fallDistance = Math.max(0, fallStartY - s.y());
@@ -126,6 +142,8 @@ public final class FallTracker {
             fallDistance = 0;
             ticksFalling = 0;
             fallStartY = s.y();
+            dropping = false;
+            fastFallApplied = false;
         }
 
         justStartedFalling = previousFallDistance <= 0 && fallDistance > 0;
@@ -141,6 +159,7 @@ public final class FallTracker {
         inFluid = s.inFluid();
         flying = s.flying();
         worldId = s.worldId();
+        verticalVelocity = s.verticalVelocity();
     }
 
     public boolean isInitialized() { return initialized; }
@@ -149,6 +168,10 @@ public final class FallTracker {
     public double lastLandedFallDistance() { return lastLandedFallDistance; }
     public int ticksFalling() { return ticksFalling; }
     public boolean isOnGround() { return onGround; }
+    /** The player's Y coordinate as sampled on the most recent tick. */
+    public double currentY() { return lastY; }
+    /** The player's vertical velocity as sampled on the most recent tick. */
+    public double verticalVelocity() { return verticalVelocity; }
     public boolean isGliding() { return gliding; }
     public boolean isInVehicle() { return inVehicle; }
     public boolean isInFluid() { return inFluid; }
@@ -162,4 +185,34 @@ public final class FallTracker {
     public boolean enteredVehicle() { return enteredVehicle; }
     public boolean leftVehicle() { return leftVehicle; }
     public boolean teleported() { return teleported; }
+
+    // region fast-fall / drop
+
+    /** Latest distance from the player's feet to the surface below, supplied by the module. */
+    public void setHeightToGround(double height) {
+        this.heightToGround = height;
+    }
+
+    public double heightToGround() { return heightToGround; }
+
+    /** Whether the mode has already applied its downward acceleration for the current fall. */
+    public boolean fastFallApplied() { return fastFallApplied; }
+
+    /** Record that the one-shot fast fall for this fall has been applied. */
+    public void markFastFallApplied() { fastFallApplied = true; }
+
+    /**
+     * Whether a deliberate fast fall should be applied: airborne, already fallen for
+     * {@code minimumTicks}, with the ground still more than {@code minHeight} blocks away.
+     */
+    public boolean shouldFastFall(int minimumTicks, double minHeight) {
+        return !onGround && ticksFalling >= minimumTicks && !fastFallApplied && heightToGround > minHeight;
+    }
+
+    /** Whether a drop (deliberate downward acceleration) is currently in effect. */
+    public boolean isDropping() { return dropping; }
+
+    public void setDropping(boolean value) { this.dropping = value; }
+
+    // endregion
 }

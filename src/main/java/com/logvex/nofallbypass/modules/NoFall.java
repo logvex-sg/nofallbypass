@@ -4,6 +4,7 @@ import com.logvex.nofallbypass.compat.ServerCompatibility;
 import com.logvex.nofallbypass.modes.AdaptiveMode;
 import com.logvex.nofallbypass.modes.CustomMode;
 import com.logvex.nofallbypass.modes.ElytraMode;
+import com.logvex.nofallbypass.modes.GrimJumpMode;
 import com.logvex.nofallbypass.modes.GroundSpoofMode;
 import com.logvex.nofallbypass.modes.MlgAssistMode;
 import com.logvex.nofallbypass.modes.NoFallMode;
@@ -30,9 +31,11 @@ import meteordevelopment.meteorclient.utils.Utils;
 import meteordevelopment.meteorclient.utils.player.FindItemResult;
 import meteordevelopment.meteorclient.utils.player.InvUtils;
 import meteordevelopment.meteorclient.utils.player.Rotations;
+import meteordevelopment.meteorclient.utils.misc.input.Input;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.item.Items;
 import net.minecraft.network.packet.c2s.play.PlayerMoveC2SPacket;
+import net.minecraft.network.packet.s2c.play.EntityVelocityUpdateS2CPacket;
 import net.minecraft.util.Hand;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.hit.HitResult;
@@ -65,6 +68,7 @@ public class NoFall extends Module {
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
     private final SettingGroup sgSafety = settings.createGroup("Safety");
     private final SettingGroup sgHandling = settings.createGroup("Handling");
+    private final SettingGroup sgGrimJump = settings.createGroup("Grim Jump");
 
     private final Setting<NoFallMode.Strategy> mode = sgGeneral.add(new EnumSetting.Builder<NoFallMode.Strategy>()
         .name("mode")
@@ -146,12 +150,48 @@ public class NoFall extends Module {
         .build()
     );
 
+    private final Setting<Double> grimFallThreshold = sgGrimJump.add(new DoubleSetting.Builder()
+        .name("grim-fall-threshold")
+        .description("Fall distance in blocks at which GrimJump arms its landing correction.")
+        .defaultValue(3.0)
+        .range(3.0, 15.0)
+        .sliderRange(3.0, 10.0)
+        .decimalPlaces(1)
+        .visible(() -> mode.get() == NoFallMode.Strategy.GrimJump)
+        .build()
+    );
+
+    private final Setting<Boolean> grimModifiedPacket = sgGrimJump.add(new BoolSetting.Builder()
+        .name("grim-modified-packet")
+        .description("Also resend the corrected position (y + 0.01) on landing, not just the ground flag.")
+        .defaultValue(false)
+        .visible(() -> mode.get() == NoFallMode.Strategy.GrimJump)
+        .build()
+    );
+
+    private final Setting<Boolean> grimFastFall = sgGrimJump.add(new BoolSetting.Builder()
+        .name("grim-fast-fall")
+        .description("Apply a one-shot downward velocity after falling a while. Off by default; this is a visible movement change.")
+        .defaultValue(false)
+        .visible(() -> mode.get() == NoFallMode.Strategy.GrimJump)
+        .build()
+    );
+
+    private final Setting<Boolean> grimVelocityCheck = sgGrimJump.add(new BoolSetting.Builder()
+        .name("grim-velocity-check")
+        .description("Only re-press jump once the server confirms the landing with a velocity update packet.")
+        .defaultValue(true)
+        .visible(() -> mode.get() == NoFallMode.Strategy.GrimJump)
+        .build()
+    );
+
     private final Map<NoFallMode.Strategy, NoFallMode> modes = new EnumMap<>(NoFallMode.Strategy.class);
     private final FallTracker tracker = new FallTracker();
     private final NoFallMode.Context context = new ModuleContext();
 
     private AdaptiveMode adaptiveMode;
     private CustomMode customMode;
+    private GrimJumpMode grimJumpMode;
 
     private NoFallMode activeMode;
     private ServerCompatibility compatibility = ServerCompatibility.Profiles.LOCAL_OR_UNKNOWN;
@@ -159,6 +199,10 @@ public class NoFall extends Module {
     private boolean overrideGround;
     private boolean pendingMlg;
     private double cachedHeightAboveGround = Double.MAX_VALUE;
+
+    // Deferred input and packet side effects, applied by the module on the correct phase.
+    private boolean pendingJumpPress;
+    private double pendingVerticalVelocity = Double.NaN;
 
     public NoFall() {
         super(Categories.Movement, "nofall-bypass", "Multi-mode fall-damage mitigation: packet, MLG, elytra, vehicle, safe landing and adaptive strategies.");
@@ -170,6 +214,8 @@ public class NoFall extends Module {
         modes.put(NoFallMode.Strategy.Vanilla, new VanillaMode());
         modes.put(NoFallMode.Strategy.GroundSpoof, new GroundSpoofMode());
         modes.put(NoFallMode.Strategy.Packet, new PacketMode());
+        grimJumpMode = new GrimJumpMode();
+        modes.put(NoFallMode.Strategy.GrimJump, grimJumpMode);
         modes.put(NoFallMode.Strategy.MlgAssist, new MlgAssistMode());
         modes.put(NoFallMode.Strategy.Elytra, new ElytraMode());
         modes.put(NoFallMode.Strategy.Vehicle, new VehicleMode());
@@ -191,7 +237,11 @@ public class NoFall extends Module {
             elytraHandling.get(),
             vehicleHandling.get(),
             debug.get(),
-            notifications.get()
+            notifications.get(),
+            grimFallThreshold.get(),
+            grimModifiedPacket.get(),
+            grimFastFall.get(),
+            grimVelocityCheck.get()
         );
     }
 
@@ -208,6 +258,8 @@ public class NoFall extends Module {
         overrideGround = false;
         pendingMlg = false;
         cachedHeightAboveGround = Double.MAX_VALUE;
+        pendingJumpPress = false;
+        pendingVerticalVelocity = Double.NaN;
 
         switchTo(modes.get(mode.get()));
         info("Server profile: %s".formatted(compatibility.name()));
@@ -223,6 +275,8 @@ public class NoFall extends Module {
         overrideGround = false;
         pendingMlg = false;
         cachedHeightAboveGround = Double.MAX_VALUE;
+        restoreJumpKey();
+        pendingVerticalVelocity = Double.NaN;
     }
 
     private void switchTo(NoFallMode target) {
@@ -282,10 +336,22 @@ public class NoFall extends Module {
         overrideGround = false;
         pendingMlg = false;
         cachedHeightAboveGround = Double.MAX_VALUE;
+        restoreJumpKey();
+        pendingVerticalVelocity = Double.NaN;
         if (activeMode != null) {
             activeMode.onDeactivate(context);
             activeMode = null;
         }
+    }
+
+    @EventHandler
+    private void onPacketReceive(PacketEvent.Receive event) {
+        if (!isActive() || grimJumpMode == null) return;
+        if (!(event.packet instanceof EntityVelocityUpdateS2CPacket packet)) return;
+        if (mc.player == null || packet.getEntityId() != mc.player.getId()) return;
+
+        // The server acknowledged a velocity change (typically the jump impulse) for us.
+        grimJumpMode.onVelocity();
     }
 
     @EventHandler
@@ -306,6 +372,25 @@ public class NoFall extends Module {
     }
 
     @EventHandler
+    private void onTickPre(TickEvent.Pre event) {
+        if (!isActive()) return;
+
+        // Input phase: apply the deferred jump press/release so it lines up with the movement packet.
+        if (pendingJumpPress) {
+            pressJumpKey();
+            pendingJumpPress = false;
+        }
+
+        if (!Double.isNaN(pendingVerticalVelocity)) {
+            if (Utils.canUpdate() && mc.player != null) {
+                Vec3d velocity = mc.player.getVelocity();
+                mc.player.setVelocity(velocity.x, pendingVerticalVelocity, velocity.z);
+            }
+            pendingVerticalVelocity = Double.NaN;
+        }
+    }
+
+    @EventHandler
     private void onTickPost(TickEvent.Post event) {
         if (!isActive() || !Utils.canUpdate()) return;
 
@@ -322,6 +407,7 @@ public class NoFall extends Module {
         ));
 
         cachedHeightAboveGround = computeHeightAboveGround();
+        tracker.setHeightToGround(cachedHeightAboveGround);
 
         overrideGround = false;
         pendingMlg = false;
@@ -387,6 +473,31 @@ public class NoFall extends Module {
         if (debug.get()) info(message);
     }
 
+    // region input
+
+    /**
+     * Press the jump key for the input phase. Only the key is set; the key's pressed state is
+     * restored by {@link #releaseJumpKey()} so normal input is never left stuck down.
+     */
+    private void pressJumpKey() {
+        if (mc.options == null || mc.options.jumpKey == null) return;
+        mc.options.jumpKey.setPressed(true);
+    }
+
+    /** Force the jump key up, regardless of the physical key, for the deferred release. */
+    private void releaseJumpKeyNow() {
+        if (mc.options == null || mc.options.jumpKey == null) return;
+        mc.options.jumpKey.setPressed(false);
+    }
+
+    /** Restore the jump key to its real physical state (used on disable and world change). */
+    private void restoreJumpKey() {
+        if (mc.options == null || mc.options.jumpKey == null) return;
+        mc.options.jumpKey.setPressed(Input.isPressed(mc.options.jumpKey));
+    }
+
+    // endregion
+
     // endregion
 
     @Override
@@ -415,9 +526,45 @@ public class NoFall extends Module {
             if (!Utils.canUpdate()) return;
             if (mc.getNetworkHandler() == null) return;
 
+            // The second boolean is the horizontal-collision flag, not sprinting, so this stays
+            // consistent with the surrounding movement packets.
             PlayerMoveC2SPacket packet = new PlayerMoveC2SPacket.OnGroundOnly(ground, false);
             ((IPlayerMoveC2SPacket) packet).meteor$setTag(TAG_SELF);
             mc.getNetworkHandler().getConnection().send(packet);
+        }
+
+        @Override
+        public void sendMovePacket(boolean onGround, double yOffset) {
+            if (!Utils.canUpdate()) return;
+            if (mc.getNetworkHandler() == null) return;
+            if (mc.player == null) return;
+
+            PlayerMoveC2SPacket.PositionAndOnGround packet = new PlayerMoveC2SPacket.PositionAndOnGround(
+                mc.player.getX(),
+                mc.player.getY() + yOffset,
+                mc.player.getZ(),
+                onGround,
+                mc.player.horizontalCollision
+            );
+            ((IPlayerMoveC2SPacket) packet).meteor$setTag(TAG_SELF);
+            mc.getNetworkHandler().getConnection().send(packet);
+        }
+
+        @Override
+        public void requestJump() {
+            pendingJumpPress = true;
+        }
+
+        @Override
+        public void releaseJump() {
+            pendingJumpPress = false;
+            NoFall.this.releaseJumpKeyNow();
+        }
+
+        @Override
+        public void applyVerticalVelocity(double y) {
+            if (Double.isNaN(y) || Double.isInfinite(y)) return;
+            pendingVerticalVelocity = y;
         }
 
         @Override

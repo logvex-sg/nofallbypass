@@ -15,6 +15,8 @@ public abstract class NoFallMode {
         Vanilla,
         GroundSpoof,
         Packet,
+        /** Resends a corrected position and re-presses jump just as the server registers a landing. */
+        GrimJump,
         MlgAssist,
         Elytra,
         Vehicle,
@@ -58,6 +60,28 @@ public abstract class NoFallMode {
 
         /** Distance from the player's feet to the first solid surface below, in blocks. */
         double heightAboveGround();
+
+        /**
+         * Send a movement packet immediately, bypassing the send event (used for the GrimJump
+         * landing correction). {@code onGround} is the ground flag; {@code yOffset} is added to the
+         * player's current Y so exactly the resend the server expects can be reproduced.
+         */
+        void sendMovePacket(boolean onGround, double yOffset);
+
+        /**
+         * Ask for the jump key to be re-pressed for one tick. The module defers the press to the
+         * next tick's input phase, which is the only point at which it affects the jump packet.
+         */
+        void requestJump();
+
+        /** Force the module to release the jump key on the next input phase. */
+        void releaseJump();
+
+        /**
+         * Apply a one-shot vertical velocity to the player (meters per tick). Used by the optional
+         * fast-fall, which is a real movement change the server can see — never a hidden packet.
+         */
+        void applyVerticalVelocity(double y);
     }
 
     private final Strategy strategy;

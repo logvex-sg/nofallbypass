@@ -113,7 +113,7 @@ public interface ServerCompatibility {
         /** A vanilla-like server: ground spoofing is not trusted, so we do not rely on it. */
         public static final ServerCompatibility VANILLA_LIKE = new SimpleProfile(
             "vanilla-like",
-            withMeta(EnumSet.of(Strategy.Vanilla, Strategy.Packet, Strategy.MlgAssist, Strategy.Elytra, Strategy.Vehicle, Strategy.SafeLanding)),
+            withMeta(EnumSet.of(Strategy.Vanilla, Strategy.Packet, Strategy.GrimJump, Strategy.MlgAssist, Strategy.Elytra, Strategy.Vehicle, Strategy.SafeLanding)),
             true
         );
 
@@ -124,7 +124,7 @@ public interface ServerCompatibility {
          */
         public static final ServerCompatibility ANARCHY_GENERIC = new SimpleProfile(
             "anarchy-generic",
-            withMeta(EnumSet.of(Strategy.Vanilla, Strategy.GroundSpoof, Strategy.Packet, Strategy.MlgAssist, Strategy.Elytra, Strategy.Vehicle, Strategy.SafeLanding)),
+            withMeta(EnumSet.of(Strategy.Vanilla, Strategy.GroundSpoof, Strategy.Packet, Strategy.GrimJump, Strategy.MlgAssist, Strategy.Elytra, Strategy.Vehicle, Strategy.SafeLanding)),
             true
         );
 
@@ -134,7 +134,7 @@ public interface ServerCompatibility {
          */
         public static final ServerCompatibility ANARCHY_6B6T = new SimpleProfile(
             "anarchy-6b6t",
-            withMeta(EnumSet.of(Strategy.Vanilla, Strategy.GroundSpoof, Strategy.Packet, Strategy.MlgAssist, Strategy.Elytra, Strategy.Vehicle, Strategy.SafeLanding)),
+            withMeta(EnumSet.of(Strategy.Vanilla, Strategy.GroundSpoof, Strategy.Packet, Strategy.GrimJump, Strategy.MlgAssist, Strategy.Elytra, Strategy.Vehicle, Strategy.SafeLanding)),
             true
         );
     }

@@ -91,7 +91,7 @@ class AdaptiveSelectionTest {
     @Test
     void mlgSkippedWhenAssistDisabled() {
         AdaptiveMode a = new AdaptiveMode(modes(ServerCompatibility.Profiles.ANARCHY_6B6T), ServerCompatibility.Profiles.ANARCHY_6B6T);
-        NoFallSettings noBucket = new NoFallSettings(3, 5, false, true, true, false, true);
+        NoFallSettings noBucket = new NoFallSettings(3, 5, false, true, true, false, true, 3, false, false, true);
         assertEquals(NoFallMode.Strategy.Packet, a.select(falling(4), noBucket));
     }
 
