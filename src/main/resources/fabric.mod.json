@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "nofallbypass",
+  "version": "${version}",
+  "name": "NoFall Bypass",
+  "description": "A Meteor Client addon providing a multi-mode NoFall module (ground spoof, packet, MLG assist, elytra, vehicle, safe landing and adaptive) for Minecraft 1.21.11.",
+  "authors": [
+    "logvex"
+  ],
+  "contact": {
+    "sources": "https://github.com/logvex-sg/nofallbypass"
+  },
+  "environment": "client",
+  "entrypoints": {
+    "meteor": [
+      "com.logvex.nofallbypass.NoFallBypassAddon"
+    ]
+  },
+  "custom": {
+    "meteor-client:color": "46,204,113",
+    "modmenu": {
+      "parent": {
+        "id": "meteor-client"
+      }
+    }
+  },
+  "depends": {
+    "java": ">=21",
+    "minecraft": ["${mc_version}"],
+    "meteor-client": "*"
+  }
+}
